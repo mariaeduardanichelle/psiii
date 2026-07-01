@@ -1,5 +1,6 @@
 # PSIII — Auditoria Automatizada de Segurança SSL/TLS
 ## Automação de Diagnóstico de Vulnerabilidades com IA para Servidor Web
+### Equipe: Gustavo Henrique da Silva Kubiack, Maria Eduarda Nichelle Ferreira, Rafael Francisco Gonçalves Serrano
 
 Workflow n8n que analisa a segurança de um host (SSL/TLS, certificado digital), usa uma IA para interpretar os resultados e gera um relatório em PDF enviado por e-mail.
 
