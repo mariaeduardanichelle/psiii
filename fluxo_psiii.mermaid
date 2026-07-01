@@ -1,0 +1,6 @@
+flowchart TD
+    A[Início manual e definição do alvo] --> B[Varredura SSL Labs]
+    B -->|aguarda até concluir| B
+    B --> C[Análise dos resultados: protocolos SSL/TLS + certificado digital]
+    C --> D[Agente de IA gera relatório]
+    D --> E[Geração do PDF e envio por e-mail]
