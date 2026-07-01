@@ -1,0 +1,703 @@
+{
+  "name": "PSIII",
+  "nodes": [
+    {
+      "parameters": {},
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        -5480,
+        420
+      ],
+      "id": "66158421-c433-4da7-a8f1-97996a0fd1d0"
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst item = $input.first().json;\nlet md = (item.output && item.output.relatorioMarkdown) ? item.output.relatorioMarkdown : '';\n\nmd = md.replace(/\\|\\s*\\|/g, '|\\n|');\n\nmd = md.replace(/([^\\n])\\n(\\|.*\\|)\\s*\\n(\\|?\\s*:?-{2,}:?\\s*\\|)/g, '$1\\n\\n$2\\n$3');\n\nfunction inlineMd(text) {\n  if (!text) return '';\n  return text\n    .trim()\n    .replace(/\\*\\*(.+?)\\*\\*/g, '<strong>$1</strong>')\n    .replace(/\\*(.+?)\\*/g, '<em>$1</em>')\n    .replace(/`([^`]+)`/g, '<code>$1</code>');\n}\n\nfunction parseRow(line) {\n  return line\n    .trim()\n    .replace(/^\\|/, '')\n    .replace(/\\|$/, '')\n    .split('|')\n    .map(c => c.trim());\n}\n\nfunction isSeparatorRow(line) {\n  return /^\\s*\\|?\\s*:?-{2,}:?\\s*(\\|\\s*:?-{2,}:?\\s*)*\\|?\\s*$/.test(line);\n}\n\nfunction tableBlockToHtml(blockLines) {\n  if (blockLines.length < 2 || !isSeparatorRow(blockLines[1])) {\n    return blockLines.join('\\n');\n  }\n  const header = parseRow(blockLines[0]);\n  const bodyRows = blockLines.slice(2).map(parseRow);\n\n  let html = '<table><thead><tr>';\n  header.forEach(h => { html += `<th>${inlineMd(h)}</th>`; });\n  html += '</tr></thead><tbody>';\n  bodyRows.forEach(row => {\n    html += '<tr>';\n    row.forEach(cell => { html += `<td>${inlineMd(cell)}</td>`; });\n    html += '</tr>';\n  });\n  html += '</tbody></table>';\n  return html;\n}\n\nfunction normalizeTables(markdown) {\n  const lines = markdown.split('\\n');\n  const isTableLine = (l) => /^\\s*\\|.*\\|\\s*$/.test(l.trim());\n\n  const out = [];\n  let buffer = [];\n  let inTable = false;\n\n  for (const line of lines) {\n    if (isTableLine(line)) {\n      buffer.push(line);\n      inTable = true;\n    } else {\n      if (inTable) {\n        out.push(tableBlockToHtml(buffer));\n        buffer = [];\n        inTable = false;\n      }\n      out.push(line);\n    }\n  }\n  if (inTable && buffer.length) {\n    out.push(tableBlockToHtml(buffer));\n  }\n  return out.join('\\n');\n}\n\nconst relatorioMarkdownNormalizado = normalizeTables(md);\n\nreturn [{\n  json: {\n    ...item,\n    output: {\n      ...item.output,\n      relatorioMarkdown: relatorioMarkdownNormalizado\n    }\n  }\n}];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -2200,
+        420
+      ],
+      "id": "a686cd5e-3f1e-4f22-a84d-e9cf8c23c44c",
+      "name": "Normalizar Tabelas Markdown1"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "assign-url",
+              "name": "URL do Alvo",
+              "value": "https://ifc.edu.br",
+              "type": "string"
+            },
+            {
+              "id": "assign-responsavel",
+              "name": "Responsável pela Auditoria",
+              "value": "",
+              "type": "string"
+            },
+            {
+              "id": "94b001a3-3763-4d13-ae1a-c9c7ea464d8d",
+              "name": "E-mail de Destino",
+              "value": "",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "name": "Alvo Fixo",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -5220,
+        420
+      ],
+      "id": "840d25ae-8b71-49f7-ac73-f99e6bf80a08"
+    },
+    {
+      "parameters": {
+        "jsCode": "const inputJson = $input.first().json;\n\nlet raw = inputJson['URL do Alvo']\n  || inputJson['URL do alvo']\n  || inputJson['url']\n  || inputJson['Url do Alvo']\n  || '';\n\nif (!raw) {\n  for (const [key, value] of Object.entries(inputJson)) {\n    if (typeof value === 'string' && value.trim() !== '' && !/responsavel|respons\\u00e1vel/i.test(key)) {\n      raw = value;\n      break;\n    }\n  }\n}\n\nlet urlStr = String(raw).trim();\n\nconst mdMatch = urlStr.match(/\\]\\((https?:\\/\\/[^\\s)]+)\\)/i);\nif (mdMatch) {\n  urlStr = mdMatch[1];\n}\n\nurlStr = urlStr.replace(/[\\[\\]<>]/g, '').trim();\n\nif (!urlStr) {\n  throw new Error('Nenhuma URL foi recebida do formulário. Campos recebidos: ' + JSON.stringify(inputJson));\n}\n\nif (!/^https?:\\/\\//i.test(urlStr)) {\n  urlStr = 'https://' + urlStr;\n}\n\nconst hostMatch = urlStr.match(/^https?:\\/\\/([^\\/\\?#]+)/i);\nif (!hostMatch) {\n  throw new Error('URL inválida fornecida: ' + raw);\n}\n\nlet hostname = hostMatch[1].replace(/^[^@]*@/, '');\nhostname = hostname.split(':')[0];\n\nif (!hostname) {\n  throw new Error('Não foi possível extrair o hostname da URL: ' + raw);\n}\n\nconst responsavel = inputJson['Responsável pela Auditoria'] || inputJson['Responsavel pela Auditoria'] || 'Não informado';\n\nreturn [{\n  json: {\n    targetUrl: urlStr,\n    hostname: hostname,\n    responsavel: responsavel,\n    auditStartedAt: new Date().toISOString()\n  }\n}];\n"
+      },
+      "name": "Definir Alvo - Normalizar",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 1,
+      "position": [
+        -5000,
+        420
+      ],
+      "id": "e71785fb-b18f-46a7-858a-23165c1ed6f9"
+    },
+    {
+      "parameters": {
+        "url": "=https://api.ssllabs.com/api/v3/analyze",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "host",
+              "value": "={{ $json.hostname }}"
+            },
+            {
+              "name": "publish",
+              "value": "off"
+            },
+            {
+              "name": "startNew",
+              "value": "on"
+            },
+            {
+              "name": "all",
+              "value": "done"
+            },
+            {
+              "name": "ignoreMismatch",
+              "value": "on"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          },
+          "timeout": 15000
+        }
+      },
+      "name": "SSL Labs - Iniciar Analise",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -4780,
+        420
+      ],
+      "id": "c3961fa8-710b-42f4-88fb-4375a7187cfe"
+    },
+    {
+      "parameters": {
+        "amount": 15
+      },
+      "name": "Aguardar Processamento",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        -4560,
+        420
+      ],
+      "id": "25e40ee5-aa81-4e7a-ab51-30b76228f153",
+      "webhookId": "60f6981c-11c6-4460-8624-fe4d616cb8eb"
+    },
+    {
+      "parameters": {
+        "url": "=https://api.ssllabs.com/api/v3/analyze",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "host",
+              "value": "={{ $('Definir Alvo - Normalizar').item.json.hostname }}"
+            },
+            {
+              "name": "all",
+              "value": "done"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          },
+          "timeout": 15000
+        }
+      },
+      "name": "SSL Labs - Consultar Status",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -4340,
+        420
+      ],
+      "id": "52c49c85-4092-4190-ac0c-e441b2ce7de6"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "cond-status",
+              "leftValue": "={{ $json.status }}",
+              "rightValue": "READY",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "name": "Status Pronto",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -4120,
+        420
+      ],
+      "id": "46246f86-1279-4421-aaef-53fd750e9ec3"
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst data = $input.first().json;\nconst endpoints = data.endpoints || [];\nconst achados = [];\n\nconst PROTOCOLOS_INSEGUROS = ['SSL 2.0', 'SSL 3.0', 'TLS 1.0', 'TLS 1.1'];\nconst CIFRAS_FRACAS_REGEX = /(RC4|DES|3DES|MD5|NULL|EXPORT|anon)/i;\n\nlet protocoloSeguro = true;\nlet grade = 'N/A';\nlet detalhesProtocolos = [];\nlet cifrasFracas = [];\n\nif (endpoints.length === 0) {\n  achados.push({\n    item: 'Conectividade SSL Labs',\n    descricao: 'Não foi possível obter dados do SSL Labs para este host (host pode estar fora do ar, sem porta 443 aberta, ou análise ainda em ERROR).',\n    severidade: 'Média'\n  });\n  protocoloSeguro = false;\n} else {\n  const ep = endpoints[0];\n  grade = ep.grade || 'N/A';\n  const details = ep.details || {};\n  const protocols = details.protocols || [];\n\n  detalhesProtocolos = protocols.map(p => `${p.name} ${p.version}`);\n\n  const inseguros = protocols.filter(p => {\n    const label = `${p.name} ${p.version}`;\n    return PROTOCOLOS_INSEGUROS.some(ins => label.indexOf(ins.split(' ')[1]) !== -1 && label.indexOf(ins.split(' ')[0]) !== -1);\n  });\n\n  if (inseguros.length > 0) {\n    protocoloSeguro = false;\n    achados.push({\n      item: 'Protocolos Criptográficos Obsoletos',\n      descricao: `Foram detectados protocolos inseguros habilitados: ${inseguros.map(p => p.name + ' ' + p.version).join(', ')}. Esses protocolos possuem vulnerabilidades conhecidas (ex: POODLE, BEAST) e devem ser desabilitados.`,\n      severidade: 'Alta'\n    });\n  }\n\n  const suites = details.suites && details.suites.list ? details.suites.list : [];\n  cifrasFracas = suites.filter(s => CIFRAS_FRACAS_REGEX.test(s.name));\n  if (cifrasFracas.length > 0) {\n    protocoloSeguro = false;\n    achados.push({\n      item: 'Cifras Criptográficas Fracas',\n      descricao: `Foram identificadas cifras fracas ou obsoletas habilitadas no servidor: ${cifrasFracas.map(s => s.name).join(', ')}.`,\n      severidade: 'Alta'\n    });\n  }\n\n  if (grade && ['D', 'E', 'F', 'T', 'M'].includes(grade)) {\n    protocoloSeguro = false;\n    achados.push({\n      item: 'Nota Geral SSL Labs Baixa',\n      descricao: `O SSL Labs atribuiu nota \"${grade}\" para a configuração TLS deste servidor, indicando configuração insegura ou problemática.`,\n      severidade: 'Alta'\n    });\n  } else if (grade && ['B', 'C'].includes(grade)) {\n    achados.push({\n      item: 'Nota Geral SSL Labs Intermediária',\n      descricao: `O SSL Labs atribuiu nota \"${grade}\". Configuração aceitável, porém com espaço para melhorias (ex: HSTS, forward secrecy).`,\n      severidade: 'Média'\n    });\n  }\n\n  if (details.forwardSecrecy !== undefined && details.forwardSecrecy < 2) {\n    achados.push({\n      item: 'Forward Secrecy Insuficiente',\n      descricao: 'O servidor não oferece suporte adequado a Forward Secrecy em todas as suítes, o que pode comprometer sessões passadas em caso de vazamento de chave privada.',\n      severidade: 'Média'\n    });\n  }\n}\n\nreturn [{\n  json: {\n    ...data,\n    protocoloSeguro,\n    sslGrade: grade,\n    protocolosDetectados: detalhesProtocolos,\n    cifrasFracasDetectadas: cifrasFracas.map(s => s.name),\n    achadosProtocolo: achados\n  }\n}];\n"
+      },
+      "name": "Verificar Protocolos SSL TLS",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 1,
+      "position": [
+        -3680,
+        340
+      ],
+      "id": "656e54ec-71d2-486c-a2db-0e960f5e8183"
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $input.first().json;\nconst endpoints = data.endpoints || [];\nconst certs = data.certs || [];\nconst achados = [];\nlet certificadoValido = true;\nlet certInfo = {};\n\nconst cert = certs.length > 0 ? certs[0] : null;\n\nif (endpoints.length > 0 && endpoints[0].details && cert) {\n  const agora = Date.now();\n  const notAfter = cert.notAfter || null;\n  const notBefore = cert.notBefore || null;\n\n  certInfo = {\n    issuer: cert.issuerSubject || 'Desconhecido',\n    subject: cert.subject || 'Desconhecido',\n    notBefore: notBefore ? new Date(notBefore).toISOString() : null,\n    notAfter: notAfter ? new Date(notAfter).toISOString() : null,\n    sigAlg: cert.sigAlg || 'Desconhecido',\n    keyAlg: cert.keyAlg || 'Desconhecido',\n    keySize: cert.keySize || null\n  };\n\n  if (notAfter && notAfter < agora) {\n    certificadoValido = false;\n    achados.push({\n      item: 'Certificado Expirado',\n      descricao: `O certificado digital expirou em ${certInfo.notAfter}. Certificados expirados quebram a confiança da conexão e devem ser renovados imediatamente.`,\n      severidade: 'Alta'\n    });\n  } else if (notAfter) {\n    const diasRestantes = Math.floor((notAfter - agora) / (1000 * 60 * 60 * 24));\n    if (diasRestantes <= 30) {\n      achados.push({\n        item: 'Certificado Próximo da Expiração',\n        descricao: `O certificado expira em ${diasRestantes} dia(s) (${certInfo.notAfter}). Recomenda-se renovação preventiva.`,\n        severidade: 'Média'\n      });\n    }\n  }\n\n  if (/sha1/i.test(certInfo.sigAlg)) {\n    certificadoValido = false;\n    achados.push({\n      item: 'Algoritmo de Assinatura Fraco',\n      descricao: `O certificado utiliza o algoritmo de assinatura ${certInfo.sigAlg}, considerado fraco e obsoleto (vulnerável a colisões).`,\n      severidade: 'Alta'\n    });\n  }\n\n  if (certInfo.keyAlg === 'RSA' && certInfo.keySize && certInfo.keySize < 2048) {\n    certificadoValido = false;\n    achados.push({\n      item: 'Tamanho de Chave Insuficiente',\n      descricao: `A chave do certificado possui apenas ${certInfo.keySize} bits, abaixo do mínimo recomendado de 2048 bits para RSA.`,\n      severidade: 'Alta'\n    });\n  }\n\n  const certChains = endpoints[0].details.certChains;\n  if (Array.isArray(certChains) && certChains.length > 0 && certChains[0].issues !== undefined) {\n    if (certChains[0].issues !== 0) {\n      certificadoValido = false;\n      achados.push({\n        item: 'Cadeia de Certificação com Problemas',\n        descricao: 'A cadeia de certificação apresenta problemas (possível certificado autoassinado, incompleto ou não confiável por autoridades públicas).',\n        severidade: 'Alta'\n      });\n    }\n  }\n} else {\n  certificadoValido = false;\n  achados.push({\n    item: 'Certificado Não Verificável',\n    descricao: 'Não foi possível obter informações do certificado digital deste servidor para análise.',\n    severidade: 'Média'\n  });\n}\n\nreturn [{\n  json: {\n    ...data,\n    certificadoValido,\n    certificadoInfo: certInfo,\n    achadosCertificado: achados\n  }\n}];"
+      },
+      "name": "Analisar Certificado Digital",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 1,
+      "position": [
+        -3660,
+        560
+      ],
+      "id": "b2ffdb7d-b604-411b-b085-f4948c7ec72f"
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combineBy": "combineByPosition",
+        "options": {}
+      },
+      "name": "Unificar Resultados",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.1,
+      "position": [
+        -3240,
+        420
+      ],
+      "id": "729befe1-0317-46ea-8dec-fdfe565c3ac8"
+    },
+    {
+      "parameters": {
+        "jsCode": "const item = $input.first().json;\n\nconst MAX_ITENS_ARRAY = 15;\nconst MAX_CHARS_STRING = 300;\n\nfunction truncStr(s) {\n  if (typeof s !== 'string') return s;\n  return s.length > MAX_CHARS_STRING ? s.slice(0, MAX_CHARS_STRING) + '... [truncado]' : s;\n}\n\nfunction truncArr(arr) {\n  if (!Array.isArray(arr)) return [];\n  const limitado = arr.slice(0, MAX_ITENS_ARRAY).map(a => {\n    if (a && typeof a === 'object') {\n      const copia = { ...a };\n      if (copia.descricao) copia.descricao = truncStr(copia.descricao);\n      return copia;\n    }\n    return truncStr(a);\n  });\n  if (arr.length > MAX_ITENS_ARRAY) {\n    limitado.push({ aviso: `+${arr.length - MAX_ITENS_ARRAY} itens omitidos por limite de tamanho` });\n  }\n  return limitado;\n}\n\nconst contexto = {\n  alvo: item.targetUrl,\n  hostname: item.hostname,\n  responsavel: item.responsavel,\n  auditStartedAt: item.auditStartedAt,\n  sslGrade: item.sslGrade,\n  protocoloConsideradoSeguroPelaColeta: item.protocoloSeguro,\n  protocolosDetectados: truncArr(item.protocolosDetectados || []),\n  cifrasFracasDetectadas: truncArr(item.cifrasFracasDetectadas || []),\n  certificadoInfo: item.certificadoInfo ? {\n    issuer: truncStr(item.certificadoInfo.issuer),\n    subject: truncStr(item.certificadoInfo.subject),\n    notBefore: item.certificadoInfo.notBefore,\n    notAfter: item.certificadoInfo.notAfter,\n    sigAlg: item.certificadoInfo.sigAlg,\n    keyAlg: item.certificadoInfo.keyAlg,\n    keySize: item.certificadoInfo.keySize\n  } : {},\n  statusCodeObtido: item.statusCodeObtido,\n  headersAusentes: truncArr(item.headersAusentes || []),\n  achadosBrutos: {\n    protocoloSslTls: truncArr(item.achadosProtocolo || []),\n    certificadoDigital: truncArr(item.achadosCertificado || []),\n    configuracaoHttp: truncArr(item.achadosConfiguracao || [])\n  }\n};\n\nlet contextoTexto = JSON.stringify(contexto, null, 2);\n\nconst LIMITE_TOTAL = 6000;\nif (contextoTexto.length > LIMITE_TOTAL) {\n  contextoTexto = contextoTexto.slice(0, LIMITE_TOTAL) + '\\n... [contexto truncado por limite de tamanho]';\n}\n\nreturn [{\n  json: {\n    ...item,\n    contextoParaIA: contextoTexto\n  }\n}];\n"
+      },
+      "name": "Preparar Contexto para IA",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 1,
+      "position": [
+        -3020,
+        420
+      ],
+      "id": "a32230a2-efc1-4a22-a6a7-8edcab8cd2ec"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=Analise os seguintes dados de diagnóstico de segurança e gere o relatório. Seja direto e objetivo, sem repetir os dados brutos no relatório (resuma):\n\n{{ JSON.stringify($json) }}",
+        "hasOutputParser": true,
+        "options": {
+          "systemMessage": "Você é um analista sênior de segurança da informação especializado em hardening de servidores web, protocolos SSL/TLS, certificados digitais e cabeçalhos HTTP de segurança.\n\nVocê receberá um JSON com os dados brutos coletados por ferramentas automatizadas (SSL Labs, headers HTTP, dados de certificado) referentes a um único host. Sua tarefa é ANALISAR esses dados (não use regras fixas predefinidas, raciocine sobre cada achado, seu contexto e impacto real) e produzir:\n\n1. Uma classificação de risco geral: 'Crítico', 'Alto', 'Médio' ou 'Baixo', considerando severidade, quantidade e combinação de achados (ex: vários achados médios juntos podem elevar o risco geral).\n2. A contagem de achados por severidade (Alta, Média, Baixa) — você pode reclassificar a severidade de um achado bruto se, na sua análise, ela estiver sub ou sobrestimada, justificando brevemente.\n3. Recomendações de correção específicas e priorizadas para cada vulnerabilidade identificada.\n4. Um relatório completo em Markdown, em português, com as seções: Cabeçalho (alvo, host, responsável, datas), Risco Geral (com emoji 🔴🟠🟡🟢), Resumo Técnico, Tabela de Vulnerabilidades (Categoria | Vulnerabilidade | Severidade | Recomendação) e Próximos Passos Sugeridos.\n\nSeja criterioso: não invente achados que não estejam nos dados fornecidos. Se um achado bruto for, na sua avaliação, um falso positivo ou irrelevante no contexto, você pode rebaixá-lo ou omiti-lo do relatório, desde que justifique isso no próprio texto do relatório.\n\nResponda SOMENTE no formato estruturado solicitado.\n\nIMPORTANTE: Responda em UMA única resposta, completa e definitiva, já no formato estruturado solicitado. Não peça mais informações, não faça perguntas de esclarecimento e não tente chamar ferramentas - você não tem ferramentas disponíveis, apenas raciocine sobre os dados fornecidos. Seja conciso no relatório Markdown (evite repetir texto bruto dos dados de entrada).",
+          "maxIterations": 2,
+          "returnIntermediateSteps": false
+        }
+      },
+      "name": "Agente IA - Analista de Seguranca",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.7,
+      "position": [
+        -2580,
+        420
+      ],
+      "id": "e0920778-84e4-4bd2-91ad-2c956b956cfc"
+    },
+    {
+      "parameters": {
+        "schemaType": "manual",
+        "inputSchema": "{\n  \"type\": \"object\",\n  \"properties\": {\n    \"riscoGeral\": {\n      \"type\": \"string\",\n      \"enum\": [\n        \"Crítico\",\n        \"Alto\",\n        \"Médio\",\n        \"Baixo\"\n      ]\n    },\n    \"totalAlta\": {\n      \"type\": \"number\"\n    },\n    \"totalMedia\": {\n      \"type\": \"number\"\n    },\n    \"totalBaixa\": {\n      \"type\": \"number\"\n    },\n    \"relatorioMarkdown\": {\n      \"type\": \"string\",\n      \"description\": \"Relatório completo em Markdown\"\n    }\n  },\n  \"required\": [\n    \"riscoGeral\",\n    \"totalAlta\",\n    \"totalMedia\",\n    \"totalBaixa\",\n    \"relatorioMarkdown\"\n  ]\n}"
+      },
+      "name": "Parser de Saida Estruturada",
+      "type": "@n8n/n8n-nodes-langchain.outputParserStructured",
+      "typeVersion": 1.2,
+      "position": [
+        -2320,
+        700
+      ],
+      "id": "76bd0982-de94-4d4d-ba53-f2dc2252fd12"
+    },
+    {
+      "parameters": {
+        "mode": "markdownToHtml",
+        "markdown": "={{ $json.output.relatorioMarkdown }}",
+        "options": {}
+      },
+      "name": "Converter Markdown para HTML",
+      "type": "n8n-nodes-base.markdown",
+      "typeVersion": 1,
+      "position": [
+        -1980,
+        260
+      ],
+      "id": "ee83f51b-45c6-4443-a6ad-b4b37d5d8114"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "assign-email-destino",
+              "name": "emailDestino",
+              "value": "={{ $('Alvo Fixo').item.json[\"E-mail de Destino\"] }}",
+              "type": "string"
+            },
+            {
+              "id": "assign-email-assunto",
+              "name": "assuntoEmail",
+              "value": "=Relatório de Diagnóstico de Vulnerabilidades - {{ $('Definir Alvo - Normalizar').item.json.hostname }} - Risco {{ $('Agente IA - Analista de Seguranca').item.json.output.riscoGeral }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "name": "Configurar Destinatario do Email",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -1540,
+        260
+      ],
+      "id": "b031233f-4168-414e-b1fe-2bcfea7d6890",
+      "notes": "Edite o valor de emailDestino com o e-mail real que deve receber o relatório."
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.pdfshift.io/v3/convert/pdf",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-API-Key",
+              "value": ""
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "source",
+              "value": "={{ $('Code4').item.json.fullHtml }}"
+            },
+            {
+              "name": "landscape",
+              "value": "false"
+            },
+            {
+              "name": "use_print",
+              "value": "false"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "file"
+            }
+          }
+        }
+      },
+      "name": "Gerar PDF do Relatorio",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -1300,
+        260
+      ],
+      "id": "ebefd119-eda2-4240-99b4-0b8492ea7773",
+      "notes": "Use aqui o serviço de conversão HTML->PDF de sua preferência (PDFShift, CloudConvert, Gotenberg auto-hospedado, etc). Configure a credencial de autenticação do serviço escolhido."
+    },
+    {
+      "parameters": {
+        "fromEmail": "innovatech.summit@gmail.com",
+        "toEmail": "={{ $('Configurar Destinatario do Email').item.json.emailDestino }}",
+        "subject": "={{ $('Configurar Destinatario do Email').item.json.assuntoEmail }}",
+        "options": {
+          "attachments": "data",
+          "allowUnauthorizedCerts": true
+        }
+      },
+      "name": "Enviar Relatorio por Email",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        -1080,
+        260
+      ],
+      "id": "0a2dfbe7-f32c-4b7a-ac23-30fca8a0e572",
+      "webhookId": "528d0e35-e20e-41b0-b24e-ec95b6a7e750",
+      "credentials": {
+        "smtp": {
+          "id": "sIZFJ8a97x8UzDGU",
+          "name": "SMTP account"
+        }
+      },
+      "notes": "Configure aqui a credencial SMTP (ou troque pelo node Gmail/Outlook, se preferir)."
+    },
+    {
+      "parameters": {
+        "jsCode": "const item = $input.first().json;\nconst data = Array.isArray(item) ? item[0] : item;\n\nconst resumo = {\n  responsavel: $('Alvo Fixo').first().json[\"Responsável pela Auditoria\"],\n  host: data.host,\n  grade: data.sslGrade,\n  protocoloSeguro: data.protocoloSeguro,\n  protocolosDetectados: data.protocolosDetectados,\n  cifrasFracasDetectadas: data.cifrasFracasDetectadas,\n  headersAusentes: data.headersAusentes,\n  achadosConfiguracao: data.achadosConfiguracao,\n  achadosCertificado: data.achadosCertificado,\n  certificadoValido: data.certificadoValido,\n  hstsPolicy: data.endpoints?.[0]?.details?.hstsPolicy?.header || null,\n};\n\nreturn [{ json: resumo }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -2800,
+        420
+      ],
+      "id": "b8a728d4-1df3-4408-8b00-6608669271d0",
+      "name": "Code"
+    },
+    {
+      "parameters": {
+        "model": "deepseek-v4-flash",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatDeepSeek",
+      "typeVersion": 1,
+      "position": [
+        -2700,
+        660
+      ],
+      "id": "6cb2b5fa-47a6-4b9e-9548-eb609fd791e8",
+      "name": "DeepSeek Chat Model",
+      "credentials": {
+        "deepSeekApi": {
+          "id": "ZuuHzelVvsh3rLKI",
+          "name": "DeepSeek account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const html = $input.first().json.data;\n\nconst fullHtml = `<!DOCTYPE html>\n<html lang=\"pt-BR\">\n<head>\n<meta charset=\"UTF-8\">\n<style>\n  * { box-sizing: border-box; }\n\n  body {\n    font-family: 'Segoe UI', Arial, Helvetica, sans-serif;\n    color: #1f2937;\n    line-height: 1.55;\n    font-size: 13.5px;\n    padding: 10px 6px;\n    margin: 0;\n  }\n\n  h1 {\n    font-size: 22px;\n    color: #111827;\n    border-bottom: 3px solid #111827;\n    padding-bottom: 10px;\n    margin: 0 0 18px 0;\n  }\n\n  h2 {\n    font-size: 16px;\n    color: #111827;\n    margin-top: 26px;\n    margin-bottom: 10px;\n    padding: 6px 10px;\n    background: #f3f4f6;\n    border-left: 5px solid #4b5563;\n  }\n\n  h3 {\n    font-size: 14.5px;\n    color: #111827;\n    margin-top: 18px;\n    margin-bottom: 8px;\n  }\n\n  p {\n    margin: 8px 0;\n  }\n\n  strong {\n    color: #111827;\n  }\n\n  table {\n    border-collapse: collapse;\n    width: 100%;\n    margin: 12px 0 22px 0;\n    font-size: 12.5px;\n  }\n\n  th, td {\n    border: 1px solid #d1d5db;\n    padding: 8px 10px;\n    text-align: left;\n    vertical-align: top;\n  }\n\n  th {\n    background-color: #1f2937;\n    color: #ffffff;\n    font-weight: 600;\n  }\n\n  tbody tr:nth-child(even) {\n    background-color: #f9fafb;\n  }\n\n  tr {\n    page-break-inside: avoid;\n  }\n\n  blockquote {\n    border-left: 4px solid #9ca3af;\n    background: #f9fafb;\n    padding: 10px 16px;\n    margin: 14px 0;\n    color: #374151;\n    font-style: italic;\n  }\n\n  code {\n    background: #f3f4f6;\n    padding: 1px 6px;\n    border-radius: 3px;\n    font-size: 12px;\n    font-family: 'Courier New', monospace;\n  }\n\n  ul, ol {\n    margin: 8px 0 8px 22px;\n    padding: 0;\n  }\n\n  li {\n    margin: 4px 0;\n  }\n\n  hr {\n    border: none;\n    border-top: 1px solid #e5e7eb;\n    margin: 24px 0;\n  }\n\n  @page {\n    margin: 22mm 16mm;\n  }\n</style>\n</head>\n<body>\n${html}\n</body>\n</html>`;\n\nreturn [{ json: { fullHtml } }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1760,
+        260
+      ],
+      "id": "ce4954dc-f96f-4341-be5a-cf72109b8704",
+      "name": "Code4"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Manual Trigger": {
+      "main": [
+        [
+          {
+            "node": "Alvo Fixo",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalizar Tabelas Markdown1": {
+      "main": [
+        [
+          {
+            "node": "Converter Markdown para HTML",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Alvo Fixo": {
+      "main": [
+        [
+          {
+            "node": "Definir Alvo - Normalizar",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Definir Alvo - Normalizar": {
+      "main": [
+        [
+          {
+            "node": "SSL Labs - Iniciar Analise",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "SSL Labs - Iniciar Analise": {
+      "main": [
+        [
+          {
+            "node": "Aguardar Processamento",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Aguardar Processamento": {
+      "main": [
+        [
+          {
+            "node": "SSL Labs - Consultar Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "SSL Labs - Consultar Status": {
+      "main": [
+        [
+          {
+            "node": "Status Pronto",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Status Pronto": {
+      "main": [
+        [
+          {
+            "node": "Verificar Protocolos SSL TLS",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Analisar Certificado Digital",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Aguardar Processamento",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Verificar Protocolos SSL TLS": {
+      "main": [
+        [
+          {
+            "node": "Unificar Resultados",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Analisar Certificado Digital": {
+      "main": [
+        [
+          {
+            "node": "Unificar Resultados",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Unificar Resultados": {
+      "main": [
+        [
+          {
+            "node": "Preparar Contexto para IA",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preparar Contexto para IA": {
+      "main": [
+        [
+          {
+            "node": "Code",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Agente IA - Analista de Seguranca": {
+      "main": [
+        [
+          {
+            "node": "Normalizar Tabelas Markdown1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parser de Saida Estruturada": {
+      "ai_outputParser": [
+        [
+          {
+            "node": "Agente IA - Analista de Seguranca",
+            "type": "ai_outputParser",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Converter Markdown para HTML": {
+      "main": [
+        [
+          {
+            "node": "Code4",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Configurar Destinatario do Email": {
+      "main": [
+        [
+          {
+            "node": "Gerar PDF do Relatorio",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gerar PDF do Relatorio": {
+      "main": [
+        [
+          {
+            "node": "Enviar Relatorio por Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code": {
+      "main": [
+        [
+          {
+            "node": "Agente IA - Analista de Seguranca",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "DeepSeek Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Agente IA - Analista de Seguranca",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code4": {
+      "main": [
+        [
+          {
+            "node": "Configurar Destinatario do Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "5e407303-d312-469d-ab8a-f9b6f03ed879",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "34921219d396599870a0e45d748c6e509e5562d3d4f53958abb0dd6587becdf0"
+  },
+  "id": "7rmHvk0IfSgC12hs",
+  "tags": []
+}
